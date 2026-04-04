@@ -48,9 +48,15 @@ func (e *ParseError) Unwrap() error {
 }
 
 func newParseError(kind int, frame []byte, format string, args ...any) *ParseError {
+	// Copy frame bytes to avoid retaining references to mutable buffers.
+	var frameCopy []byte
+	if frame != nil {
+		frameCopy = make([]byte, len(frame))
+		copy(frameCopy, frame)
+	}
 	return &ParseError{
 		Kind:    kind,
-		Frame:   frame,
+		Frame:   frameCopy,
 		Message: fmt.Sprintf(format, args...),
 	}
 }
