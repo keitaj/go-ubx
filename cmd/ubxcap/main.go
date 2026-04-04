@@ -59,25 +59,24 @@ func main() {
 	configure(port, *measRate)
 
 	// Open output file if specified
-	var outWriter io.Writer
+	var outFile_ *os.File
+	var reader io.Reader = port
 	if *outFile != "" {
 		f, err := os.Create(*outFile)
 		if err != nil {
 			log.Fatalf("Failed to create %s: %v", *outFile, err)
 		}
 		defer f.Close()
-		outWriter = f
+		outFile_ = f
+		reader = io.TeeReader(port, f)
 		fmt.Fprintf(os.Stderr, "Saving raw data to %s\n", *outFile)
 	}
 
-	// Handle Ctrl+C
+	// Handle Ctrl+C: close the port so Decode() returns io.EOF,
+	// then main exits normally and deferred cleanup (including file
+	// close/flush) runs.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
-	var reader io.Reader = port
-	if outWriter != nil {
-		reader = io.TeeReader(port, outWriter)
-	}
 
 	fmt.Fprintln(os.Stderr, "Receiving... (Ctrl+C to stop)")
 	fmt.Fprintln(os.Stderr)
@@ -87,18 +86,13 @@ func main() {
 
 	go func() {
 		<-sig
-		fmt.Fprintf(os.Stderr, "\n\nReceived %d messages total\n", msgCount.Load())
 		port.Close()
-		os.Exit(0)
 	}()
 
 	for {
 		msg, err := dec.Decode()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			continue
+			break
 		}
 		msgCount.Add(1)
 
@@ -108,6 +102,12 @@ func main() {
 
 		printMessage(msg)
 	}
+
+	// Sync output file before deferred Close to ensure all data is flushed.
+	if outFile_ != nil {
+		outFile_.Sync()
+	}
+	fmt.Fprintf(os.Stderr, "\n\nReceived %d messages total\n", msgCount.Load())
 }
 
 func configure(port io.Writer, measRateMs int) {
