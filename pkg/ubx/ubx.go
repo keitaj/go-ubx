@@ -94,18 +94,19 @@ func (c ClassID) Class() byte { return byte(c >> 8) }
 // ID returns the message ID byte.
 func (c ClassID) ID() byte { return byte(c & 0xFF) }
 
+var classIDNames = map[ClassID]string{
+	NewClassID(ClassNAV, IDNavPVT):    "NAV-PVT",
+	NewClassID(ClassRXM, IDRxmRAWX):   "RXM-RAWX",
+	NewClassID(ClassRXM, IDRxmSFRBX):  "RXM-SFRBX",
+	NewClassID(ClassMON, IDMonRF):     "MON-RF",
+	NewClassID(ClassACK, IDAckAck):    "ACK-ACK",
+	NewClassID(ClassACK, IDAckNak):    "ACK-NAK",
+	NewClassID(ClassCFG, IDCfgValset): "CFG-VALSET",
+	NewClassID(ClassCFG, IDCfgValget): "CFG-VALGET",
+}
+
 func (c ClassID) String() string {
-	names := map[ClassID]string{
-		NewClassID(ClassNAV, IDNavPVT):    "NAV-PVT",
-		NewClassID(ClassRXM, IDRxmRAWX):   "RXM-RAWX",
-		NewClassID(ClassRXM, IDRxmSFRBX):  "RXM-SFRBX",
-		NewClassID(ClassMON, IDMonRF):     "MON-RF",
-		NewClassID(ClassACK, IDAckAck):    "ACK-ACK",
-		NewClassID(ClassACK, IDAckNak):    "ACK-NAK",
-		NewClassID(ClassCFG, IDCfgValset): "CFG-VALSET",
-		NewClassID(ClassCFG, IDCfgValget): "CFG-VALGET",
-	}
-	if name, ok := names[c]; ok {
+	if name, ok := classIDNames[c]; ok {
 		return name
 	}
 	return fmt.Sprintf("0x%02X-0x%02X", c.Class(), c.ID())
@@ -401,8 +402,8 @@ func ParseFrame(data []byte) (Message, int, error) {
 	ckA, ckB := Checksum(data[2 : frameLen-2])
 	if ckA != data[frameLen-2] || ckB != data[frameLen-1] {
 		return nil, frameLen, newParseError(ErrChecksum, data[:frameLen],
-			"checksum mismatch: expected 0x%02X 0x%02X, got 0x%02X 0x%02X",
-			data[frameLen-2], data[frameLen-1], ckA, ckB)
+			"checksum mismatch: computed 0x%02X 0x%02X, frame has 0x%02X 0x%02X",
+			ckA, ckB, data[frameLen-2], data[frameLen-1])
 	}
 
 	payload := data[6 : 6+payloadLen]
