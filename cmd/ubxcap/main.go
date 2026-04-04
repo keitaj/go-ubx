@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync/atomic"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/keitaj/go-ubx/cmd/ubxcap/serialport"
