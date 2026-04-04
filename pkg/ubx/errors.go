@@ -5,9 +5,12 @@ import (
 	"fmt"
 )
 
+// ParseErrorKind identifies the category of a parse error.
+type ParseErrorKind int
+
 // Error kind constants.
 const (
-	ErrInvalidSync = iota + 1
+	ErrInvalidSync ParseErrorKind = iota + 1
 	ErrChecksum
 	ErrPayloadLen
 	ErrIncomplete
@@ -27,9 +30,9 @@ var errIncomplete = &ParseError{Kind: ErrIncomplete, Message: "incomplete frame"
 
 // ParseError represents a structured UBX parsing error.
 type ParseError struct {
-	Kind    int    // Error kind (ErrInvalidSync, ErrChecksum, etc.)
-	Frame   []byte // Raw frame bytes (may be nil for incomplete frames)
-	Message string // Human-readable error message
+	Kind    ParseErrorKind // Error kind (ErrInvalidSync, ErrChecksum, etc.)
+	Frame   []byte         // Raw frame bytes (may be nil for incomplete frames)
+	Message string         // Human-readable error message
 }
 
 func (e *ParseError) Error() string {
@@ -51,7 +54,7 @@ func (e *ParseError) Unwrap() error {
 	}
 }
 
-func newParseError(kind int, frame []byte, format string, args ...any) *ParseError {
+func newParseError(kind ParseErrorKind, frame []byte, format string, args ...any) *ParseError {
 	// Copy frame bytes to avoid retaining references to mutable buffers.
 	var frameCopy []byte
 	if frame != nil {
