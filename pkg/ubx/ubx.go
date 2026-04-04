@@ -320,6 +320,48 @@ type CfgKeyVal struct {
 	Val []byte // Value bytes (size depends on key)
 }
 
+// --- CFG-VALGET (0x06 0x8B) ---
+
+// CfgValget represents a CFG-VALGET response from the receiver.
+type CfgValget struct {
+	MsgClassID ClassID
+	Version    uint8       // Message version
+	Layer      uint8       // Layer from which values were read
+	KeyVals    []CfgKeyVal // Configuration key-value pairs
+}
+
+func (m *CfgValget) GetClassID() ClassID { return m.MsgClassID }
+
+// GetU1 returns the uint8 value for the given key, or 0 if not found.
+func (m *CfgValget) GetU1(key uint32) (uint8, bool) {
+	for _, kv := range m.KeyVals {
+		if kv.Key == key && len(kv.Val) >= 1 {
+			return kv.Val[0], true
+		}
+	}
+	return 0, false
+}
+
+// GetU2 returns the uint16 value for the given key, or 0 if not found.
+func (m *CfgValget) GetU2(key uint32) (uint16, bool) {
+	for _, kv := range m.KeyVals {
+		if kv.Key == key && len(kv.Val) >= 2 {
+			return binary.LittleEndian.Uint16(kv.Val), true
+		}
+	}
+	return 0, false
+}
+
+// GetU4 returns the uint32 value for the given key, or 0 if not found.
+func (m *CfgValget) GetU4(key uint32) (uint32, bool) {
+	for _, kv := range m.KeyVals {
+		if kv.Key == key && len(kv.Val) >= 4 {
+			return binary.LittleEndian.Uint32(kv.Val), true
+		}
+	}
+	return 0, false
+}
+
 // --- Frame parsing ---
 
 // HeaderLen is the total overhead: sync(2) + class(1) + id(1) + length(2) + checksum(2) = 8.
@@ -394,6 +436,8 @@ func decodeMessage(classID ClassID, payload []byte) (Message, error) {
 		return decodeAck(classID, payload)
 	case NewClassID(ClassACK, IDAckNak):
 		return decodeNak(classID, payload)
+	case NewClassID(ClassCFG, IDCfgValget):
+		return decodeCfgValget(classID, payload)
 	default:
 		return &RawMessage{MsgClassID: classID, Payload: append([]byte(nil), payload...)}, nil
 	}
@@ -550,6 +594,59 @@ func decodeRxmSFRBX(classID ClassID, p []byte) (*RxmSFRBX, error) {
 	}
 
 	return m, nil
+}
+
+func decodeCfgValget(classID ClassID, p []byte) (*CfgValget, error) {
+	if len(p) < 4 {
+		return nil, newParseError(ErrPayloadLen, p, "CFG-VALGET requires at least 4 bytes, got %d", len(p))
+	}
+
+	m := &CfgValget{MsgClassID: classID}
+	m.Version = p[0]
+	m.Layer = p[1]
+
+	// Parse key-value pairs from offset 4 onwards.
+	// Value size is determined by the key's top byte (size/type indicator).
+	off := 4
+	for off+4 <= len(p) {
+		key := binary.LittleEndian.Uint32(p[off : off+4])
+		off += 4
+
+		valSize := cfgKeyValueSize(key)
+		if off+valSize > len(p) {
+			break
+		}
+
+		val := make([]byte, valSize)
+		copy(val, p[off:off+valSize])
+		m.KeyVals = append(m.KeyVals, CfgKeyVal{Key: key, Val: val})
+		off += valSize
+	}
+
+	return m, nil
+}
+
+// cfgKeyValueSize returns the value size in bytes based on the key's type indicator.
+// The top byte of a configuration key encodes the storage size:
+//
+//	0x10 = 1 bit (L, stored as 1 byte)
+//	0x20 = 1 byte (U1/E1/X1)
+//	0x30 = 2 bytes (U2/E2/X2)
+//	0x40 = 4 bytes (U4/I4/E4/X4/R4)
+//	0x50 = 8 bytes (U8/R8)
+func cfgKeyValueSize(key uint32) int {
+	switch key >> 24 {
+	case 0x10, 0x20:
+		return 1
+	case 0x30:
+		return 2
+	case 0x40:
+		return 4
+	case 0x50:
+		return 8
+	default:
+		return 1 // fallback
+	}
 }
 
 func decodeAck(classID ClassID, p []byte) (*AckAck, error) {
