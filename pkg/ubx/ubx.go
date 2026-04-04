@@ -414,7 +414,11 @@ func ParseFrame(data []byte) (Message, int, error) {
 	parser, ok := customParsers[classID]
 	customParsersMu.RUnlock()
 	if ok {
-		msg, err := parser(classID, payload)
+		// Copy payload so custom parsers don't hold a reference to the
+		// caller's (potentially mutable) buffer.
+		safe := make([]byte, len(payload))
+		copy(safe, payload)
+		msg, err := parser(classID, safe)
 		return msg, frameLen, err
 	}
 
