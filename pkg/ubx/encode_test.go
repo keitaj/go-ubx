@@ -311,3 +311,14 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		t.Fatalf("original frame should parse: %v", err)
 	}
 }
+
+func TestEncodeFramePayloadTooLarge(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for oversized payload")
+		}
+	}()
+	// 65536 bytes exceeds uint16 max
+	EncodeFrame(0xFF, 0xFF, make([]byte, 65536))
+}

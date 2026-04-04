@@ -1,11 +1,18 @@
 package ubx
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // EncodeFrame builds a complete UBX frame from a class, ID, and payload.
 // Returns the frame bytes including sync header and checksum.
+// Panics if the payload exceeds the maximum UBX payload size (65535 bytes).
 func EncodeFrame(class, id byte, payload []byte) []byte {
 	payloadLen := len(payload)
+	if payloadLen > 65535 {
+		panic(fmt.Sprintf("ubx: payload size %d exceeds maximum 65535", payloadLen))
+	}
 	frame := make([]byte, payloadLen+HeaderLen)
 
 	// Sync bytes
