@@ -1,6 +1,6 @@
 // Package ubx provides a decoder and encoder for u-blox UBX binary protocol messages.
 //
-// Built-in message types: NAV-PVT, RXM-RAWX, MON-RF, RXM-SFRBX.
+// Built-in message types: NAV-PVT, NAV-SIG, RXM-RAWX, MON-RF, RXM-SFRBX.
 //
 // Custom message types can be registered with [RegisterParser]:
 //
@@ -61,6 +61,7 @@ const (
 // Message ID constants.
 const (
 	IDNavPVT    byte = 0x07 // NAV-PVT
+	IDNavSig    byte = 0x43 // NAV-SIG
 	IDRxmRAWX   byte = 0x15 // RXM-RAWX
 	IDRxmSFRBX  byte = 0x13 // RXM-SFRBX
 	IDMonRF     byte = 0x38 // MON-RF
@@ -96,6 +97,7 @@ func (c ClassID) ID() byte { return byte(c & 0xFF) }
 
 var classIDNames = map[ClassID]string{
 	NewClassID(ClassNAV, IDNavPVT):    "NAV-PVT",
+	NewClassID(ClassNAV, IDNavSig):    "NAV-SIG",
 	NewClassID(ClassRXM, IDRxmRAWX):   "RXM-RAWX",
 	NewClassID(ClassRXM, IDRxmSFRBX):  "RXM-SFRBX",
 	NewClassID(ClassMON, IDMonRF):     "MON-RF",
@@ -183,6 +185,75 @@ func (m *NavPVT) VAccM() float64 { return float64(m.VAcc) * 1e-3 }
 
 // PDOPVal returns the PDOP as a float64.
 func (m *NavPVT) PDOPVal() float64 { return float64(m.PDOP) * 0.01 }
+
+// --- NAV-SIG (0x01 0x43) ---
+
+// NavSigSignal holds signal information for a single satellite signal.
+type NavSigSignal struct {
+	GnssID     uint8  // GNSS identifier (0=GPS, 2=Galileo, 3=BeiDou, 5=QZSS, 6=GLONASS)
+	SvID       uint8  // Satellite identifier
+	SigID      uint8  // Signal identifier (0=L1C/A, 3=L2CL, 4=L5I, etc.)
+	FreqID     uint8  // GLONASS frequency slot (0-13)
+	PrRes      int16  // Pseudorange residual (0.1 m)
+	CNO        uint8  // Signal carrier-to-noise ratio (dB-Hz)
+	QualityInd uint8  // Signal quality indicator (0=none, 4=carrier locked, 7=code+carrier locked)
+	CorrSource uint8  // Correction source (0=none, 1=SBAS, 2=BeiDou, 6=RTCM, 7=SSR)
+	IonoModel  uint8  // Ionospheric model used (0=none, 1=Klobuchar GPS, 2=SBAS, 3=dual-freq)
+	SigFlags   uint16 // Signal flags bitfield
+}
+
+// Health returns the signal health status (0=unknown, 1=healthy, 2=unhealthy).
+func (s *NavSigSignal) Health() uint8 { return uint8(s.SigFlags & 0x03) }
+
+// PrSmoothed returns true if pseudorange has been smoothed.
+func (s *NavSigSignal) PrSmoothed() bool { return s.SigFlags&0x04 != 0 }
+
+// PrUsed returns true if pseudorange is used in the navigation solution.
+func (s *NavSigSignal) PrUsed() bool { return s.SigFlags&0x08 != 0 }
+
+// CrUsed returns true if carrier range is used in the navigation solution.
+func (s *NavSigSignal) CrUsed() bool { return s.SigFlags&0x10 != 0 }
+
+// DoUsed returns true if Doppler is used in the navigation solution.
+func (s *NavSigSignal) DoUsed() bool { return s.SigFlags&0x20 != 0 }
+
+// PrCorrUsed returns true if pseudorange corrections are used.
+func (s *NavSigSignal) PrCorrUsed() bool { return s.SigFlags&0x40 != 0 }
+
+// CrCorrUsed returns true if carrier range corrections are used.
+func (s *NavSigSignal) CrCorrUsed() bool { return s.SigFlags&0x80 != 0 }
+
+// DoCorrUsed returns true if Doppler corrections are used.
+func (s *NavSigSignal) DoCorrUsed() bool { return s.SigFlags&0x100 != 0 }
+
+// PrResM returns the pseudorange residual in meters.
+func (s *NavSigSignal) PrResM() float64 { return float64(s.PrRes) * 0.1 }
+
+var qualityNames = [8]string{
+	"no signal", "searching", "signal acquired", "signal unusable",
+	"code locked", "code+carrier locked (1)", "code+carrier locked (2)", "code+carrier locked (3)",
+}
+
+// QualityStr returns a human-readable signal quality description.
+func (s *NavSigSignal) QualityStr() string {
+	if s.QualityInd >= uint8(len(qualityNames)) {
+		return fmt.Sprintf("unknown(%d)", s.QualityInd)
+	}
+	return qualityNames[s.QualityInd]
+}
+
+// NavSig represents a Signal Information message.
+// It provides detailed signal-level information for all tracked signals,
+// including quality indicators and health status useful for spoofing detection.
+type NavSig struct {
+	MsgClassID ClassID
+	ITOW       uint32         // GPS time of week (ms)
+	Version    uint8          // Message version
+	NumSigs    uint8          // Number of signals
+	Signals    []NavSigSignal // Per-signal information
+}
+
+func (m *NavSig) GetClassID() ClassID { return m.MsgClassID }
 
 // --- RXM-RAWX (0x02 0x15) ---
 
@@ -428,6 +499,8 @@ func decodeMessage(classID ClassID, payload []byte) (Message, error) {
 	switch classID {
 	case NewClassID(ClassNAV, IDNavPVT):
 		return decodeNavPVT(classID, payload)
+	case NewClassID(ClassNAV, IDNavSig):
+		return decodeNavSig(classID, payload)
 	case NewClassID(ClassRXM, IDRxmRAWX):
 		return decodeRxmRAWX(classID, payload)
 	case NewClassID(ClassMON, IDMonRF):
@@ -481,6 +554,47 @@ func decodeNavPVT(classID ClassID, p []byte) (*NavPVT, error) {
 	m.HeadAcc = binary.LittleEndian.Uint32(p[72:76])
 	m.PDOP = binary.LittleEndian.Uint16(p[76:78])
 	m.Flags3 = binary.LittleEndian.Uint16(p[78:80])
+	return m, nil
+}
+
+func decodeNavSig(classID ClassID, p []byte) (*NavSig, error) {
+	const headerSize = 8
+	const sigSize = 16
+	if len(p) < headerSize {
+		return nil, newParseError(ErrPayloadLen, p, "NAV-SIG requires at least %d bytes, got %d", headerSize, len(p))
+	}
+
+	m := &NavSig{MsgClassID: classID}
+	m.ITOW = binary.LittleEndian.Uint32(p[0:4])
+	m.Version = p[4]
+	m.NumSigs = p[5]
+	// p[6:8] reserved
+
+	expected := headerSize + int(m.NumSigs)*sigSize
+	if len(p) < expected {
+		return nil, newParseError(ErrPayloadLen, p, "NAV-SIG: need %d bytes for %d signals, got %d",
+			expected, m.NumSigs, len(p))
+	}
+
+	m.Signals = make([]NavSigSignal, m.NumSigs)
+	for i := 0; i < int(m.NumSigs); i++ {
+		off := headerSize + i*sigSize
+		d := p[off : off+sigSize]
+		m.Signals[i] = NavSigSignal{
+			GnssID:     d[0],
+			SvID:       d[1],
+			SigID:      d[2],
+			FreqID:     d[3],
+			PrRes:      int16(binary.LittleEndian.Uint16(d[4:6])),
+			CNO:        d[6],
+			QualityInd: d[7],
+			CorrSource: d[8],
+			IonoModel:  d[9],
+			SigFlags:   binary.LittleEndian.Uint16(d[10:12]),
+			// d[12:16] reserved
+		}
+	}
+
 	return m, nil
 }
 
