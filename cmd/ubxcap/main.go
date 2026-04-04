@@ -33,6 +33,10 @@ func main() {
 	rawOnly := flag.Bool("raw", false, "Save raw bytes only, no console output")
 	flag.Parse()
 
+	if *measRate <= 0 {
+		log.Fatalf("Invalid measurement rate: %d ms (must be > 0)", *measRate)
+	}
+
 	if *portName == "" {
 		*portName = detectPort()
 		if *portName == "" {
