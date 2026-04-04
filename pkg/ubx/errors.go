@@ -21,6 +21,10 @@ var (
 	ErrFrameIncomplete  = errors.New("ubx: frame incomplete")
 )
 
+// errIncomplete is a pre-allocated error for the common "need more data" case
+// to avoid allocations on the hot path.
+var errIncomplete = &ParseError{Kind: ErrIncomplete, Message: "incomplete frame"}
+
 // ParseError represents a structured UBX parsing error.
 type ParseError struct {
 	Kind    int    // Error kind (ErrInvalidSync, ErrChecksum, etc.)

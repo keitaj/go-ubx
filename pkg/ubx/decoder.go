@@ -63,12 +63,12 @@ func (d *Decoder) tryParse() (Message, int, error) {
 
 		// Skip garbage bytes before sync
 		if i > 0 {
-			return nil, i, newParseError(ErrIncomplete, nil, "skipping %d garbage bytes", i)
+			return nil, i, errIncomplete
 		}
 
 		// Check if we have enough bytes to read the length field
 		if len(data) < 6 {
-			return nil, 0, newParseError(ErrIncomplete, nil, "need length field")
+			return nil, 0, errIncomplete
 		}
 
 		// Validate declared frame size before attempting parse
@@ -81,7 +81,7 @@ func (d *Decoder) tryParse() (Message, int, error) {
 		}
 
 		if len(data) < frameLen {
-			return nil, 0, newParseError(ErrIncomplete, nil, "need %d bytes, have %d", frameLen, len(data))
+			return nil, 0, errIncomplete
 		}
 
 		msg, consumed, err := ParseFrame(data)
@@ -94,9 +94,9 @@ func (d *Decoder) tryParse() (Message, int, error) {
 
 	// No sync bytes found; discard all but the last byte (could be start of sync pair)
 	if d.pos > 1 {
-		return nil, d.pos - 1, newParseError(ErrIncomplete, nil, "no sync bytes found")
+		return nil, d.pos - 1, errIncomplete
 	}
-	return nil, 0, newParseError(ErrIncomplete, nil, "insufficient data")
+	return nil, 0, errIncomplete
 }
 
 // fill reads more data from the underlying reader into the buffer.
@@ -109,10 +109,18 @@ func (d *Decoder) fill() error {
 			newSize = maxBuf
 		}
 		if newSize <= len(d.buf) {
-			// Buffer is at max and full; discard old data to make room
-			half := d.pos / 2
-			copy(d.buf, d.buf[half:d.pos])
-			d.pos -= half
+			// Buffer is at max and full. Find the first sync byte after
+			// position 0 and discard everything before it. If no sync byte
+			// is found, discard all but the last byte.
+			discard := d.pos - 1
+			for i := 1; i < d.pos-1; i++ {
+				if d.buf[i] == SyncByte1 && d.buf[i+1] == SyncByte2 {
+					discard = i
+					break
+				}
+			}
+			copy(d.buf, d.buf[discard:d.pos])
+			d.pos -= discard
 			return nil
 		}
 		newBuf := make([]byte, newSize)
@@ -142,11 +150,4 @@ func (d *Decoder) consume(n int) {
 	}
 	copy(d.buf, d.buf[n:d.pos])
 	d.pos -= n
-}
-
-func isIncomplete(err error) bool {
-	if pe, ok := err.(*ParseError); ok {
-		return pe.Kind == ErrIncomplete
-	}
-	return false
 }
