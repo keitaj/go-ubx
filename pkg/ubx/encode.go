@@ -104,6 +104,33 @@ func (b *CfgValsetBuilder) Build() []byte {
 	return EncodeFrame(ClassCFG, IDCfgValset, payload)
 }
 
+// --- CFG-VALGET encoding (poll request) ---
+
+// PollCfgValget returns a UBX frame that polls the receiver for configuration values.
+// layer specifies which layer to read from (0=RAM, 1=BBR, 2=Flash, 7=Default).
+// keys are the configuration key IDs to query.
+func PollCfgValget(layer byte, keys ...uint32) []byte {
+	// Payload: version(1) + layer(1) + position(2) + keys(4 each)
+	payload := make([]byte, 4+len(keys)*4)
+	payload[0] = 0x00 // version
+	payload[1] = layer
+	// payload[2:4] = position (0 for single request)
+
+	for i, key := range keys {
+		binary.LittleEndian.PutUint32(payload[4+i*4:], key)
+	}
+
+	return EncodeFrame(ClassCFG, IDCfgValget, payload)
+}
+
+// CFG-VALGET layer constants for polling.
+const (
+	PollLayerRAM     byte = 0 // Read from RAM (current active values)
+	PollLayerBBR     byte = 1 // Read from BBR
+	PollLayerFlash   byte = 2 // Read from Flash
+	PollLayerDefault byte = 7 // Read factory defaults
+)
+
 // --- Convenience functions ---
 
 // EnableMessageUSB returns a UBX frame that enables a message type on the USB port.

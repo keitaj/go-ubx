@@ -207,6 +207,84 @@ func TestDecodeAckNak(t *testing.T) {
 	}
 }
 
+func TestDecodeCfgValget(t *testing.T) {
+	// CFG-VALGET response with 2 key-value pairs:
+	//   KeyMsgoutNavPvtUSB (0x20910009) = 1 (U1)
+	//   KeyRateMeas (0x30210001) = 1000 (U2)
+	cfgValgetFrame := []byte{
+		0xB5, 0x62, 0x06, 0x8B, 0x0F, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00, 0x91, 0x20, 0x01, 0x01,
+		0x00, 0x21, 0x30, 0xE8, 0x03, 0x99, 0xB6,
+	}
+
+	msg, _, err := ParseFrame(cfgValgetFrame)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vg, ok := msg.(*CfgValget)
+	if !ok {
+		t.Fatalf("expected *CfgValget, got %T", msg)
+	}
+
+	if vg.GetClassID() != NewClassID(ClassCFG, IDCfgValget) {
+		t.Errorf("classID: got %v, want CFG-VALGET", vg.GetClassID())
+	}
+	if vg.Version != 1 {
+		t.Errorf("version: got %d, want 1", vg.Version)
+	}
+	if vg.Layer != 0 {
+		t.Errorf("layer: got %d, want 0 (RAM)", vg.Layer)
+	}
+	if len(vg.KeyVals) != 2 {
+		t.Fatalf("keyVals len: got %d, want 2", len(vg.KeyVals))
+	}
+
+	// Key 1: NAV-PVT USB rate = 1
+	rate, ok := vg.GetU1(KeyMsgoutNavPvtUSB)
+	if !ok {
+		t.Fatal("KeyMsgoutNavPvtUSB not found")
+	}
+	if rate != 1 {
+		t.Errorf("NAV-PVT rate: got %d, want 1", rate)
+	}
+
+	// Key 2: measurement rate = 1000ms
+	measRate, ok := vg.GetU2(KeyRateMeas)
+	if !ok {
+		t.Fatal("KeyRateMeas not found")
+	}
+	if measRate != 1000 {
+		t.Errorf("meas rate: got %d, want 1000", measRate)
+	}
+
+	// Key not present
+	_, ok = vg.GetU1(0xFFFFFFFF)
+	if ok {
+		t.Error("non-existent key should return false")
+	}
+}
+
+func TestPollCfgValget(t *testing.T) {
+	frame := PollCfgValget(PollLayerRAM, KeyMsgoutNavPvtUSB, KeyRateMeas)
+
+	msg, _, err := ParseFrame(frame)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	// Poll request is decoded as RawMessage (CFG-VALGET poll has no key-values in response format)
+	raw, ok := msg.(*CfgValget)
+	if !ok {
+		t.Fatalf("expected *CfgValget, got %T", msg)
+	}
+	if raw.GetClassID() != NewClassID(ClassCFG, IDCfgValget) {
+		t.Errorf("classID: got %v, want CFG-VALGET", raw.GetClassID())
+	}
+	if raw.Layer != PollLayerRAM {
+		t.Errorf("layer: got %d, want %d (RAM)", raw.Layer, PollLayerRAM)
+	}
+}
+
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	// Build a CFG-VALSET, encode it, then ensure the checksum is valid
 	frame := NewCfgValset(LayerRAM).
