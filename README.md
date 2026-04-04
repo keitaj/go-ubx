@@ -7,6 +7,7 @@ UBX binary protocol library for u-blox GNSS receivers in Go.
 | Message | Class | ID | Direction | Description |
 |---------|-------|----|-----------|-------------|
 | NAV-PVT | 0x01 | 0x07 | Rx | Position, Velocity, Time |
+| NAV-SIG | 0x01 | 0x43 | Rx | Signal Information (quality, health, usage flags) |
 | RXM-RAWX | 0x02 | 0x15 | Rx | Multi-GNSS Raw Measurements |
 | MON-RF | 0x0A | 0x38 | Rx | RF Information (jamming/spoofing) |
 | RXM-SFRBX | 0x02 | 0x13 | Rx | Raw Subframe Data |
@@ -34,6 +35,11 @@ for {
     case *ubx.NavPVT:
         fmt.Printf("PVT: %.7f, %.7f fix=%d sats=%d\n",
             m.LatDeg(), m.LonDeg(), m.FixType, m.NumSV)
+    case *ubx.NavSig:
+        for _, s := range m.Signals {
+            fmt.Printf("SIG: gnss=%d sv=%d cno=%d quality=%s health=%d\n",
+                s.GnssID, s.SvID, s.CNO, s.QualityStr(), s.Health())
+        }
     case *ubx.MonRF:
         for _, b := range m.Blocks {
             fmt.Printf("RF: jamming=%s jamInd=%d\n",
@@ -59,6 +65,7 @@ for {
 // Enable messages on USB port
 frame := ubx.NewCfgValset(ubx.LayerRAM).
     AddU1(ubx.KeyMsgoutNavPvtUSB, 1).
+    AddU1(ubx.KeyMsgoutNavSigUSB, 1).
     AddU1(ubx.KeyMsgoutRxmRawxUSB, 1).
     AddU1(ubx.KeyMsgoutMonRfUSB, 1).
     Build()
