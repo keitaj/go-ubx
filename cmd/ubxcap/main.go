@@ -1,5 +1,6 @@
-// ubxcap connects to a u-blox GNSS receiver, enables UBX messages,
-// and logs received data to stdout and optionally to a file.
+// ubxcap connects to a u-blox GNSS receiver, enables UBX messages
+// (NAV-PVT, NAV-SIG, RXM-RAWX, MON-RF, RXM-SFRBX), and logs
+// received data to stdout and optionally to a file.
 //
 // Usage:
 //
@@ -115,6 +116,7 @@ func configure(port io.Writer, measRateMs int) {
 
 	frame := ubx.NewCfgValset(ubx.LayerRAM).
 		AddU1(ubx.KeyMsgoutNavPvtUSB, 1).
+		AddU1(ubx.KeyMsgoutNavSigUSB, 1).
 		AddU1(ubx.KeyMsgoutRxmRawxUSB, 1).
 		AddU1(ubx.KeyMsgoutMonRfUSB, 1).
 		AddU1(ubx.KeyMsgoutRxmSfrbxUSB, 1).
@@ -125,7 +127,7 @@ func configure(port io.Writer, measRateMs int) {
 		log.Fatalf("Failed to send configuration: %v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "  NAV-PVT, RXM-RAWX, MON-RF, RXM-SFRBX enabled\n")
+	fmt.Fprintf(os.Stderr, "  NAV-PVT, NAV-SIG, RXM-RAWX, MON-RF, RXM-SFRBX enabled\n")
 	fmt.Fprintf(os.Stderr, "  Measurement rate: %dms (%dHz)\n", measRateMs, 1000/measRateMs)
 }
 
@@ -138,6 +140,21 @@ func printMessage(msg ubx.Message) {
 			fixStr, m.NumSV,
 			m.LatDeg(), m.LonDeg(), m.HMSLM(),
 			m.HAccM(), m.PDOPVal())
+
+	case *ubx.NavSig:
+		fmt.Printf("[NAV-SIG] %d signals\n", m.NumSigs)
+		for i, s := range m.Signals {
+			gnss := gnssName(s.GnssID)
+			health := "?"
+			switch s.Health() {
+			case 1:
+				health = "OK"
+			case 2:
+				health = "NG"
+			}
+			fmt.Printf("  [%2d] %s SV%3d sig=%d | CN0=%2d dB-Hz | quality=%d (%s) | health=%s | prUsed=%v crUsed=%v\n",
+				i, gnss, s.SvID, s.SigID, s.CNO, s.QualityInd, s.QualityStr(), health, s.PrUsed(), s.CrUsed())
+		}
 
 	case *ubx.RxmRAWX:
 		fmt.Printf("[RXM-RAWX] week=%d tow=%.3fs | %d measurements\n",
