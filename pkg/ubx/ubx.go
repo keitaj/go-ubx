@@ -1,4 +1,4 @@
-// Package ubx provides a parser for u-blox UBX binary protocol messages.
+// Package ubx provides a decoder and encoder for u-blox UBX binary protocol messages.
 //
 // Built-in message types: NAV-PVT, RXM-RAWX, MON-RF, RXM-SFRBX.
 //
@@ -60,10 +60,14 @@ const (
 
 // Message ID constants.
 const (
-	IDNavPVT   byte = 0x07 // NAV-PVT
-	IDRxmRAWX  byte = 0x15 // RXM-RAWX
-	IDRxmSFRBX byte = 0x13 // RXM-SFRBX
-	IDMonRF    byte = 0x38 // MON-RF
+	IDNavPVT    byte = 0x07 // NAV-PVT
+	IDRxmRAWX   byte = 0x15 // RXM-RAWX
+	IDRxmSFRBX  byte = 0x13 // RXM-SFRBX
+	IDMonRF     byte = 0x38 // MON-RF
+	IDAckAck    byte = 0x01 // ACK-ACK
+	IDAckNak    byte = 0x00 // ACK-NAK
+	IDCfgValset byte = 0x8A // CFG-VALSET
+	IDCfgValget byte = 0x8B // CFG-VALGET
 )
 
 // GNSS ID constants (used in UBX messages).
@@ -92,10 +96,14 @@ func (c ClassID) ID() byte { return byte(c & 0xFF) }
 
 func (c ClassID) String() string {
 	names := map[ClassID]string{
-		NewClassID(ClassNAV, IDNavPVT):   "NAV-PVT",
-		NewClassID(ClassRXM, IDRxmRAWX):  "RXM-RAWX",
-		NewClassID(ClassRXM, IDRxmSFRBX): "RXM-SFRBX",
-		NewClassID(ClassMON, IDMonRF):    "MON-RF",
+		NewClassID(ClassNAV, IDNavPVT):    "NAV-PVT",
+		NewClassID(ClassRXM, IDRxmRAWX):   "RXM-RAWX",
+		NewClassID(ClassRXM, IDRxmSFRBX):  "RXM-SFRBX",
+		NewClassID(ClassMON, IDMonRF):     "MON-RF",
+		NewClassID(ClassACK, IDAckAck):    "ACK-ACK",
+		NewClassID(ClassACK, IDAckNak):    "ACK-NAK",
+		NewClassID(ClassCFG, IDCfgValset): "CFG-VALSET",
+		NewClassID(ClassCFG, IDCfgValget): "CFG-VALGET",
 	}
 	if name, ok := names[c]; ok {
 		return name
@@ -271,6 +279,47 @@ type RxmSFRBX struct {
 
 func (m *RxmSFRBX) GetClassID() ClassID { return m.MsgClassID }
 
+// --- ACK-ACK / ACK-NAK (0x05 0x01 / 0x05 0x00) ---
+
+// AckAck represents an acknowledgment of a CFG message.
+type AckAck struct {
+	MsgClassID ClassID
+	AckedClass byte // Class of the acknowledged message
+	AckedID    byte // ID of the acknowledged message
+}
+
+func (m *AckAck) GetClassID() ClassID { return m.MsgClassID }
+
+// AckedClassID returns the ClassID of the message that was acknowledged.
+func (m *AckAck) AckedClassID() ClassID { return NewClassID(m.AckedClass, m.AckedID) }
+
+// AckNak represents a negative acknowledgment of a CFG message.
+type AckNak struct {
+	MsgClassID ClassID
+	NakedClass byte // Class of the rejected message
+	NakedID    byte // ID of the rejected message
+}
+
+func (m *AckNak) GetClassID() ClassID { return m.MsgClassID }
+
+// NakedClassID returns the ClassID of the message that was rejected.
+func (m *AckNak) NakedClassID() ClassID { return NewClassID(m.NakedClass, m.NakedID) }
+
+// --- CFG-VALSET / CFG-VALGET (0x06 0x8A / 0x06 0x8B) ---
+
+// Configuration layer constants for CFG-VALSET.
+const (
+	LayerRAM   byte = 0x01 // Volatile memory (lost on reset)
+	LayerBBR   byte = 0x02 // Battery-backed RAM (survives reset)
+	LayerFlash byte = 0x04 // Flash memory (permanent)
+)
+
+// CfgKeyVal represents a single configuration key-value pair.
+type CfgKeyVal struct {
+	Key uint32 // Configuration key ID
+	Val []byte // Value bytes (size depends on key)
+}
+
 // --- Frame parsing ---
 
 // HeaderLen is the total overhead: sync(2) + class(1) + id(1) + length(2) + checksum(2) = 8.
@@ -341,6 +390,10 @@ func decodeMessage(classID ClassID, payload []byte) (Message, error) {
 		return decodeMonRF(classID, payload)
 	case NewClassID(ClassRXM, IDRxmSFRBX):
 		return decodeRxmSFRBX(classID, payload)
+	case NewClassID(ClassACK, IDAckAck):
+		return decodeAck(classID, payload)
+	case NewClassID(ClassACK, IDAckNak):
+		return decodeNak(classID, payload)
 	default:
 		return &RawMessage{MsgClassID: classID, Payload: append([]byte(nil), payload...)}, nil
 	}
@@ -497,6 +550,20 @@ func decodeRxmSFRBX(classID ClassID, p []byte) (*RxmSFRBX, error) {
 	}
 
 	return m, nil
+}
+
+func decodeAck(classID ClassID, p []byte) (*AckAck, error) {
+	if len(p) < 2 {
+		return nil, newParseError(ErrPayloadLen, p, "ACK-ACK requires 2 bytes, got %d", len(p))
+	}
+	return &AckAck{MsgClassID: classID, AckedClass: p[0], AckedID: p[1]}, nil
+}
+
+func decodeNak(classID ClassID, p []byte) (*AckNak, error) {
+	if len(p) < 2 {
+		return nil, newParseError(ErrPayloadLen, p, "ACK-NAK requires 2 bytes, got %d", len(p))
+	}
+	return &AckNak{MsgClassID: classID, NakedClass: p[0], NakedID: p[1]}, nil
 }
 
 // --- Binary helpers ---
