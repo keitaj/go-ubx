@@ -46,6 +46,7 @@ const (
 	KeyMsgoutNavPvtUSB   uint32 = 0x20910009 // CFG-MSGOUT-UBX_NAV_PVT_USB
 	KeyMsgoutRxmRawxUSB  uint32 = 0x209102A7 // CFG-MSGOUT-UBX_RXM_RAWX_USB
 	KeyMsgoutRxmSfrbxUSB uint32 = 0x20910234 // CFG-MSGOUT-UBX_RXM_SFRBX_USB
+	KeyMsgoutNavSigUSB   uint32 = 0x20910088 // CFG-MSGOUT-UBX_NAV_SIG_USB
 	KeyMsgoutMonRfUSB    uint32 = 0x20910362 // CFG-MSGOUT-UBX_MON_RF_USB
 
 	// Measurement rate

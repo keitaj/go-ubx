@@ -2,6 +2,7 @@ package ubx
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"math"
@@ -43,6 +44,13 @@ var rxmSFRBXFrame = []byte{
 	0xC3, 0x22, 0x4D, 0x3C, 0x2B, 0x1A, 0x1F, 0x00, 0xE8, 0x03, 0x34, 0x12, 0xAB, 0x00, 0x78, 0x56,
 	0x34, 0x12, 0xF0, 0xDE, 0xBC, 0x9A, 0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0xDD, 0xCC,
 	0xBB, 0xAA, 0x11, 0x00, 0xFF, 0xEE, 0x20, 0x21,
+}
+
+// NAV-SIG: 2 signals (GPS SV01 L1, Galileo SV05 E1)
+var navSigFrame = []byte{
+	0xB5, 0x62, 0x01, 0x43, 0x28, 0x00, 0x80, 0x1A, 0x06, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
+	0x00, 0x00, 0x0C, 0x00, 0x2A, 0x07, 0x00, 0x01, 0x3D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x05,
+	0x00, 0x00, 0xF8, 0xFF, 0x26, 0x04, 0x01, 0x03, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0xBF, 0xC7,
 }
 
 var monRFFrame = []byte{
@@ -100,6 +108,140 @@ func TestParseNavPVT(t *testing.T) {
 	}
 	if !almostEqual(pvt.PDOPVal(), 1.21) {
 		t.Errorf("pDOP: got %f, want 1.21", pvt.PDOPVal())
+	}
+}
+
+func TestParseNavSig(t *testing.T) {
+	msg, frameLen, err := ParseFrame(navSigFrame)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if frameLen != len(navSigFrame) {
+		t.Errorf("frameLen: got %d, want %d", frameLen, len(navSigFrame))
+	}
+
+	sig, ok := msg.(*NavSig)
+	if !ok {
+		t.Fatalf("expected *NavSig, got %T", msg)
+	}
+
+	if sig.GetClassID() != NewClassID(ClassNAV, IDNavSig) {
+		t.Errorf("classID: got %v, want NAV-SIG", sig.GetClassID())
+	}
+	if sig.ITOW != 400000 {
+		t.Errorf("iTOW: got %d, want 400000", sig.ITOW)
+	}
+	if sig.NumSigs != 2 {
+		t.Fatalf("numSigs: got %d, want 2", sig.NumSigs)
+	}
+	if len(sig.Signals) != 2 {
+		t.Fatalf("signals len: got %d, want 2", len(sig.Signals))
+	}
+
+	// Signal 0: GPS SV01 L1C/A
+	s0 := sig.Signals[0]
+	if s0.GnssID != GnssIDGPS {
+		t.Errorf("sig[0] gnssId: got %d, want %d (GPS)", s0.GnssID, GnssIDGPS)
+	}
+	if s0.SvID != 1 {
+		t.Errorf("sig[0] svId: got %d, want 1", s0.SvID)
+	}
+	if s0.SigID != 0 {
+		t.Errorf("sig[0] sigId: got %d, want 0", s0.SigID)
+	}
+	if s0.CNO != 42 {
+		t.Errorf("sig[0] cno: got %d, want 42", s0.CNO)
+	}
+	if s0.QualityInd != 7 {
+		t.Errorf("sig[0] qualityInd: got %d, want 7", s0.QualityInd)
+	}
+	if s0.QualityStr() != "code+carrier locked (3)" {
+		t.Errorf("sig[0] qualityStr: got %q", s0.QualityStr())
+	}
+	if s0.IonoModel != 1 {
+		t.Errorf("sig[0] ionoModel: got %d, want 1 (Klobuchar)", s0.IonoModel)
+	}
+	if !almostEqual(s0.PrResM(), 1.2) {
+		t.Errorf("sig[0] prRes: got %f, want 1.2", s0.PrResM())
+	}
+	if s0.Health() != 1 {
+		t.Errorf("sig[0] health: got %d, want 1 (healthy)", s0.Health())
+	}
+	if !s0.PrSmoothed() {
+		t.Error("sig[0] should have prSmoothed")
+	}
+	if !s0.PrUsed() {
+		t.Error("sig[0] should have prUsed")
+	}
+	if !s0.CrUsed() {
+		t.Error("sig[0] should have crUsed")
+	}
+	if !s0.DoUsed() {
+		t.Error("sig[0] should have doUsed")
+	}
+
+	// Signal 1: Galileo SV05 E1
+	s1 := sig.Signals[1]
+	if s1.GnssID != GnssIDGalileo {
+		t.Errorf("sig[1] gnssId: got %d, want %d (Galileo)", s1.GnssID, GnssIDGalileo)
+	}
+	if s1.SvID != 5 {
+		t.Errorf("sig[1] svId: got %d, want 5", s1.SvID)
+	}
+	if s1.CNO != 38 {
+		t.Errorf("sig[1] cno: got %d, want 38", s1.CNO)
+	}
+	if s1.QualityInd != 4 {
+		t.Errorf("sig[1] qualityInd: got %d, want 4", s1.QualityInd)
+	}
+	if s1.CorrSource != 1 {
+		t.Errorf("sig[1] corrSource: got %d, want 1 (SBAS)", s1.CorrSource)
+	}
+	if s1.IonoModel != 3 {
+		t.Errorf("sig[1] ionoModel: got %d, want 3 (dual-freq)", s1.IonoModel)
+	}
+	if !almostEqual(s1.PrResM(), -0.8) {
+		t.Errorf("sig[1] prRes: got %f, want -0.8", s1.PrResM())
+	}
+	if s1.Health() != 1 {
+		t.Errorf("sig[1] health: got %d, want 1", s1.Health())
+	}
+	if !s1.PrUsed() {
+		t.Error("sig[1] should have prUsed")
+	}
+	if s1.CrUsed() {
+		t.Error("sig[1] should not have crUsed")
+	}
+	if s1.DoUsed() {
+		t.Error("sig[1] should not have doUsed")
+	}
+}
+
+func TestNavSigPayloadTooShort(t *testing.T) {
+	// Build a frame claiming 2 signals but only 1 signal worth of data
+	payload := make([]byte, 24) // header(8) + 1 signal(16), but numSigs=2
+	binary.LittleEndian.PutUint32(payload[0:4], 400000)
+	payload[5] = 2 // numSigs = 2, but only space for 1
+
+	frame := make([]byte, 0, 32)
+	frame = append(frame, 0xB5, 0x62, 0x01, 0x43)
+	lenBytes := make([]byte, 2)
+	binary.LittleEndian.PutUint16(lenBytes, uint16(len(payload)))
+	frame = append(frame, lenBytes...)
+	frame = append(frame, payload...)
+	var ckA, ckB byte
+	for _, b := range frame[2:] {
+		ckA += b
+		ckB += ckA
+	}
+	frame = append(frame, ckA, ckB)
+
+	_, _, err := ParseFrame(frame)
+	if err == nil {
+		t.Fatal("expected payload length error")
+	}
+	if !errors.Is(err, ErrInvalidPayload) {
+		t.Errorf("expected ErrInvalidPayload, got %v", err)
 	}
 }
 
@@ -267,13 +409,14 @@ func TestParseRxmSFRBX(t *testing.T) {
 func TestDecoderAllMessageTypes(t *testing.T) {
 	var stream []byte
 	stream = append(stream, navPVTFrame...)
+	stream = append(stream, navSigFrame...)
 	stream = append(stream, rxmRAWXFrame...)
 	stream = append(stream, monRFFrame...)
 	stream = append(stream, rxmSFRBXFrame...)
 
 	dec := NewDecoder(bytes.NewReader(stream))
 
-	types := []string{"NAV-PVT", "RXM-RAWX", "MON-RF", "RXM-SFRBX"}
+	types := []string{"NAV-PVT", "NAV-SIG", "RXM-RAWX", "MON-RF", "RXM-SFRBX"}
 	for i, want := range types {
 		msg, err := dec.Decode()
 		if err != nil {
@@ -360,6 +503,7 @@ func TestClassIDString(t *testing.T) {
 		want    string
 	}{
 		{NewClassID(ClassNAV, IDNavPVT), "NAV-PVT"},
+		{NewClassID(ClassNAV, IDNavSig), "NAV-SIG"},
 		{NewClassID(ClassRXM, IDRxmRAWX), "RXM-RAWX"},
 		{NewClassID(ClassMON, IDMonRF), "MON-RF"},
 		{NewClassID(ClassRXM, IDRxmSFRBX), "RXM-SFRBX"},
