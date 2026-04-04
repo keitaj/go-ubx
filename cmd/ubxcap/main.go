@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/keitaj/go-ubx/cmd/ubxcap/serialport"
@@ -78,11 +79,11 @@ func main() {
 	fmt.Fprintln(os.Stderr)
 
 	dec := ubx.NewDecoder(reader)
-	msgCount := 0
+	var msgCount atomic.Int64
 
 	go func() {
 		<-sig
-		fmt.Fprintf(os.Stderr, "\n\nReceived %d messages total\n", msgCount)
+		fmt.Fprintf(os.Stderr, "\n\nReceived %d messages total\n", msgCount.Load())
 		port.Close()
 		os.Exit(0)
 	}()
@@ -95,7 +96,7 @@ func main() {
 			}
 			continue
 		}
-		msgCount++
+		msgCount.Add(1)
 
 		if *rawOnly {
 			continue
