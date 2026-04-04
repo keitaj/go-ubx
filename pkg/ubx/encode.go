@@ -73,17 +73,17 @@ func (b *CfgValsetBuilder) AddU1(key uint32, val uint8) *CfgValsetBuilder {
 
 // AddU2 adds a uint16 configuration value.
 func (b *CfgValsetBuilder) AddU2(key uint32, val uint16) *CfgValsetBuilder {
-	buf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(buf, val)
-	b.kvs = append(b.kvs, CfgKeyVal{Key: key, Val: buf})
+	var buf [2]byte
+	binary.LittleEndian.PutUint16(buf[:], val)
+	b.kvs = append(b.kvs, CfgKeyVal{Key: key, Val: buf[:]})
 	return b
 }
 
 // AddU4 adds a uint32 configuration value.
 func (b *CfgValsetBuilder) AddU4(key uint32, val uint32) *CfgValsetBuilder {
-	buf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(buf, val)
-	b.kvs = append(b.kvs, CfgKeyVal{Key: key, Val: buf})
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], val)
+	b.kvs = append(b.kvs, CfgKeyVal{Key: key, Val: buf[:]})
 	return b
 }
 
