@@ -244,14 +244,11 @@ type MonRFBlock struct {
 	MagQ       uint8  // Magnitude of Q-part
 }
 
+var jammingStates = [4]string{"unknown", "OK", "warning", "critical"}
+
 // JammingState returns a human-readable jamming state.
 func (b *MonRFBlock) JammingState() string {
-	states := []string{"unknown", "OK", "warning", "critical"}
-	s := b.Flags & 0x03
-	if int(s) < len(states) {
-		return states[s]
-	}
-	return "unknown"
+	return jammingStates[b.Flags&0x03]
 }
 
 // MonRF represents an RF Information message.
