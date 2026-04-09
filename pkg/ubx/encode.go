@@ -56,8 +56,8 @@ const (
 	// Interference/jamming monitor (ITFM)
 	KeyItfmBBThreshold uint32 = 0x20410001 // CFG-ITFM-BBTHRESHOLD (U1, default 3)
 	KeyItfmCWThreshold uint32 = 0x20410002 // CFG-ITFM-CWTHRESHOLD (U1, default 15)
-	KeyItfmEnable      uint32 = 0x10410003 // CFG-ITFM-ENABLE (L/U1, 1=enabled)
-	KeyItfmAntSetting  uint32 = 0x20410004 // CFG-ITFM-ANTSETTING (U1, 0=unknown 1=passive 2=active)
+	KeyItfmEnable      uint32 = 0x1041000d // CFG-ITFM-ENABLE (L/U1, 1=enabled)
+	KeyItfmAntSetting  uint32 = 0x20410010 // CFG-ITFM-ANTSETTING (U1, 0=unknown 1=passive 2=active)
 )
 
 // CfgValsetBuilder builds a CFG-VALSET message payload.
