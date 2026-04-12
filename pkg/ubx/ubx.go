@@ -188,9 +188,6 @@ func (m *NavPVT) VAccM() float64 { return float64(m.VAcc) * 1e-3 }
 // PDOPVal returns the PDOP as a float64.
 func (m *NavPVT) PDOPVal() float64 { return float64(m.PDOP) * 0.01 }
 
-// --- NAV-SIG (0x01 0x43) ---
-
-// NavSigSignal holds signal information for a single satellite signal.
 // --- NAV-SAT (0x01 0x35) ---
 
 // NavSATSv holds satellite information for a single satellite.
@@ -246,6 +243,7 @@ func (m *NavSAT) GetClassID() ClassID { return m.MsgClassID }
 
 // --- NAV-SIG (0x01 0x43) ---
 
+// NavSigSignal holds signal information for a single satellite signal.
 type NavSigSignal struct {
 	GnssID     uint8  // GNSS identifier (0=GPS, 2=Galileo, 3=BeiDou, 5=QZSS, 6=GLONASS)
 	SvID       uint8  // Satellite identifier
@@ -628,6 +626,7 @@ func decodeNavSAT(classID ClassID, p []byte) (*NavSAT, error) {
 	m.Version = p[4]
 	m.NumSvs = p[5]
 	// p[6:8] reserved
+	// TODO: validate Version == 1; future firmware may change the struct layout.
 
 	expected := headerSize + int(m.NumSvs)*svSize
 	if len(p) < expected {
