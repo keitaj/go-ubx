@@ -61,6 +61,7 @@ const (
 // Message ID constants.
 const (
 	IDNavPVT    byte = 0x07 // NAV-PVT
+	IDNavSAT    byte = 0x35 // NAV-SAT
 	IDNavSig    byte = 0x43 // NAV-SIG
 	IDRxmRAWX   byte = 0x15 // RXM-RAWX
 	IDRxmSFRBX  byte = 0x13 // RXM-SFRBX
@@ -97,6 +98,7 @@ func (c ClassID) ID() byte { return byte(c & 0xFF) }
 
 var classIDNames = map[ClassID]string{
 	NewClassID(ClassNAV, IDNavPVT):    "NAV-PVT",
+	NewClassID(ClassNAV, IDNavSAT):    "NAV-SAT",
 	NewClassID(ClassNAV, IDNavSig):    "NAV-SIG",
 	NewClassID(ClassRXM, IDRxmRAWX):   "RXM-RAWX",
 	NewClassID(ClassRXM, IDRxmSFRBX):  "RXM-SFRBX",
@@ -185,6 +187,59 @@ func (m *NavPVT) VAccM() float64 { return float64(m.VAcc) * 1e-3 }
 
 // PDOPVal returns the PDOP as a float64.
 func (m *NavPVT) PDOPVal() float64 { return float64(m.PDOP) * 0.01 }
+
+// --- NAV-SAT (0x01 0x35) ---
+
+// NavSATSv holds satellite information for a single satellite.
+type NavSATSv struct {
+	GnssID uint8  // GNSS identifier (0=GPS, 2=Galileo, 3=BeiDou, 5=QZSS, 6=GLONASS)
+	SvID   uint8  // Satellite identifier
+	CNO    uint8  // Carrier-to-noise ratio (dB-Hz), strongest signal
+	Elev   int8   // Elevation (degrees, -90 to +90)
+	Azim   int16  // Azimuth (degrees, 0-360)
+	PrRes  int16  // Pseudorange residual (0.1 m)
+	Flags  uint32 // Satellite flags bitfield
+}
+
+// QualityInd returns the signal quality indicator (0-7).
+func (s *NavSATSv) QualityInd() uint8 { return uint8(s.Flags & 0x07) }
+
+// SvUsed returns true if this satellite is used in the navigation solution.
+func (s *NavSATSv) SvUsed() bool { return s.Flags&0x08 != 0 }
+
+// Health returns the satellite health status (0=unknown, 1=healthy, 2=unhealthy).
+func (s *NavSATSv) Health() uint8 { return uint8((s.Flags >> 4) & 0x03) }
+
+// DiffCorr returns true if differential correction data is available.
+func (s *NavSATSv) DiffCorr() bool { return s.Flags&0x40 != 0 }
+
+// Smoothed returns true if carrier smoothing is applied.
+func (s *NavSATSv) Smoothed() bool { return s.Flags&0x80 != 0 }
+
+// OrbitSource returns the orbit source (0=none, 1=ephemeris, 2=almanac, etc.).
+func (s *NavSATSv) OrbitSource() uint8 { return uint8((s.Flags >> 8) & 0x07) }
+
+// EphAvail returns true if ephemeris is available.
+func (s *NavSATSv) EphAvail() bool { return s.Flags&0x800 != 0 }
+
+// AlmAvail returns true if almanac is available.
+func (s *NavSATSv) AlmAvail() bool { return s.Flags&0x1000 != 0 }
+
+// PrResM returns the pseudorange residual in meters.
+func (s *NavSATSv) PrResM() float64 { return float64(s.PrRes) * 0.1 }
+
+// NavSAT represents a Satellite Information message.
+// It provides per-satellite elevation, azimuth, and signal status,
+// which is required for skyplot visualization.
+type NavSAT struct {
+	MsgClassID ClassID
+	ITOW       uint32     // GPS time of week (ms)
+	Version    uint8      // Message version
+	NumSvs     uint8      // Number of satellites
+	Svs        []NavSATSv // Per-satellite information
+}
+
+func (m *NavSAT) GetClassID() ClassID { return m.MsgClassID }
 
 // --- NAV-SIG (0x01 0x43) ---
 
@@ -499,6 +554,8 @@ func decodeMessage(classID ClassID, payload []byte) (Message, error) {
 	switch classID {
 	case NewClassID(ClassNAV, IDNavPVT):
 		return decodeNavPVT(classID, payload)
+	case NewClassID(ClassNAV, IDNavSAT):
+		return decodeNavSAT(classID, payload)
 	case NewClassID(ClassNAV, IDNavSig):
 		return decodeNavSig(classID, payload)
 	case NewClassID(ClassRXM, IDRxmRAWX):
@@ -554,6 +611,44 @@ func decodeNavPVT(classID ClassID, p []byte) (*NavPVT, error) {
 	m.HeadAcc = binary.LittleEndian.Uint32(p[72:76])
 	m.PDOP = binary.LittleEndian.Uint16(p[76:78])
 	m.Flags3 = binary.LittleEndian.Uint16(p[78:80])
+	return m, nil
+}
+
+func decodeNavSAT(classID ClassID, p []byte) (*NavSAT, error) {
+	const headerSize = 8
+	const svSize = 12
+	if len(p) < headerSize {
+		return nil, newParseError(ErrPayloadLen, p, "NAV-SAT requires at least %d bytes, got %d", headerSize, len(p))
+	}
+
+	m := &NavSAT{MsgClassID: classID}
+	m.ITOW = binary.LittleEndian.Uint32(p[0:4])
+	m.Version = p[4]
+	m.NumSvs = p[5]
+	// p[6:8] reserved
+	// TODO: validate Version == 1; future firmware may change the struct layout.
+
+	expected := headerSize + int(m.NumSvs)*svSize
+	if len(p) < expected {
+		return nil, newParseError(ErrPayloadLen, p, "NAV-SAT: need %d bytes for %d satellites, got %d",
+			expected, m.NumSvs, len(p))
+	}
+
+	m.Svs = make([]NavSATSv, m.NumSvs)
+	for i := 0; i < int(m.NumSvs); i++ {
+		off := headerSize + i*svSize
+		d := p[off : off+svSize]
+		m.Svs[i] = NavSATSv{
+			GnssID: d[0],
+			SvID:   d[1],
+			CNO:    d[2],
+			Elev:   int8(d[3]),
+			Azim:   int16(binary.LittleEndian.Uint16(d[4:6])),
+			PrRes:  int16(binary.LittleEndian.Uint16(d[6:8])),
+			Flags:  binary.LittleEndian.Uint32(d[8:12]),
+		}
+	}
+
 	return m, nil
 }
 

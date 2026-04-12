@@ -44,6 +44,7 @@ func EncodeFrame(class, id byte, payload []byte) []byte {
 const (
 	// Message output rate keys (USB port)
 	KeyMsgoutNavPvtUSB   uint32 = 0x20910009 // CFG-MSGOUT-UBX_NAV_PVT_USB
+	KeyMsgoutNavSatUSB   uint32 = 0x20910018 // CFG-MSGOUT-UBX_NAV_SAT_USB
 	KeyMsgoutRxmRawxUSB  uint32 = 0x209102A7 // CFG-MSGOUT-UBX_RXM_RAWX_USB
 	KeyMsgoutRxmSfrbxUSB uint32 = 0x20910234 // CFG-MSGOUT-UBX_RXM_SFRBX_USB
 	KeyMsgoutNavSigUSB   uint32 = 0x20910348 // CFG-MSGOUT-UBX_NAV_SIG_USB

@@ -217,6 +217,149 @@ func TestParseNavSig(t *testing.T) {
 	}
 }
 
+// NAV-SAT: 2 satellites (GPS SV01 elev=45 azim=120, Galileo SV05 elev=30 azim=250)
+var navSATFrame = []byte{
+	0xB5, 0x62, 0x01, 0x35, 0x20, 0x00, 0x20, 0xA1, 0x07, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01,
+	0x2A, 0x2D, 0x78, 0x00, 0x0F, 0x00, 0x1F, 0x08, 0x00, 0x00, 0x02, 0x05, 0x26, 0x1E, 0xFA, 0x00,
+	0xF8, 0xFF, 0x14, 0x12, 0x00, 0x00, 0x89, 0x7A,
+}
+
+func TestParseNavSAT(t *testing.T) {
+	msg, frameLen, err := ParseFrame(navSATFrame)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if frameLen != len(navSATFrame) {
+		t.Errorf("frameLen: got %d, want %d", frameLen, len(navSATFrame))
+	}
+
+	sat, ok := msg.(*NavSAT)
+	if !ok {
+		t.Fatalf("expected *NavSAT, got %T", msg)
+	}
+
+	if sat.GetClassID() != NewClassID(ClassNAV, IDNavSAT) {
+		t.Errorf("classID: got %v, want NAV-SAT", sat.GetClassID())
+	}
+	if sat.ITOW != 500000 {
+		t.Errorf("iTOW: got %d, want 500000", sat.ITOW)
+	}
+	if sat.Version != 1 {
+		t.Errorf("version: got %d, want 1", sat.Version)
+	}
+	if sat.NumSvs != 2 {
+		t.Fatalf("numSvs: got %d, want 2", sat.NumSvs)
+	}
+	if len(sat.Svs) != 2 {
+		t.Fatalf("svs len: got %d, want 2", len(sat.Svs))
+	}
+
+	// Satellite 0: GPS SV01
+	sv0 := sat.Svs[0]
+	if sv0.GnssID != GnssIDGPS {
+		t.Errorf("sv[0] gnssId: got %d, want %d (GPS)", sv0.GnssID, GnssIDGPS)
+	}
+	if sv0.SvID != 1 {
+		t.Errorf("sv[0] svId: got %d, want 1", sv0.SvID)
+	}
+	if sv0.CNO != 42 {
+		t.Errorf("sv[0] cno: got %d, want 42", sv0.CNO)
+	}
+	if sv0.Elev != 45 {
+		t.Errorf("sv[0] elev: got %d, want 45", sv0.Elev)
+	}
+	if sv0.Azim != 120 {
+		t.Errorf("sv[0] azim: got %d, want 120", sv0.Azim)
+	}
+	if !almostEqual(sv0.PrResM(), 1.5) {
+		t.Errorf("sv[0] prRes: got %f, want 1.5", sv0.PrResM())
+	}
+	if sv0.QualityInd() != 7 {
+		t.Errorf("sv[0] qualityInd: got %d, want 7", sv0.QualityInd())
+	}
+	if !sv0.SvUsed() {
+		t.Error("sv[0] should be svUsed")
+	}
+	if sv0.Health() != 1 {
+		t.Errorf("sv[0] health: got %d, want 1 (healthy)", sv0.Health())
+	}
+	if sv0.OrbitSource() != 0 {
+		t.Errorf("sv[0] orbitSource: got %d, want 0", sv0.OrbitSource())
+	}
+	if !sv0.EphAvail() {
+		t.Error("sv[0] should have ephAvail")
+	}
+	if sv0.AlmAvail() {
+		t.Error("sv[0] should not have almAvail")
+	}
+
+	// Satellite 1: Galileo SV05
+	sv1 := sat.Svs[1]
+	if sv1.GnssID != GnssIDGalileo {
+		t.Errorf("sv[1] gnssId: got %d, want %d (Galileo)", sv1.GnssID, GnssIDGalileo)
+	}
+	if sv1.SvID != 5 {
+		t.Errorf("sv[1] svId: got %d, want 5", sv1.SvID)
+	}
+	if sv1.CNO != 38 {
+		t.Errorf("sv[1] cno: got %d, want 38", sv1.CNO)
+	}
+	if sv1.Elev != 30 {
+		t.Errorf("sv[1] elev: got %d, want 30", sv1.Elev)
+	}
+	if sv1.Azim != 250 {
+		t.Errorf("sv[1] azim: got %d, want 250", sv1.Azim)
+	}
+	if !almostEqual(sv1.PrResM(), -0.8) {
+		t.Errorf("sv[1] prRes: got %f, want -0.8", sv1.PrResM())
+	}
+	if sv1.QualityInd() != 4 {
+		t.Errorf("sv[1] qualityInd: got %d, want 4", sv1.QualityInd())
+	}
+	if sv1.SvUsed() {
+		t.Error("sv[1] should not be svUsed")
+	}
+	if sv1.Health() != 1 {
+		t.Errorf("sv[1] health: got %d, want 1", sv1.Health())
+	}
+	if sv1.OrbitSource() != 2 {
+		t.Errorf("sv[1] orbitSource: got %d, want 2 (almanac)", sv1.OrbitSource())
+	}
+	if sv1.EphAvail() {
+		t.Error("sv[1] should not have ephAvail")
+	}
+	if !sv1.AlmAvail() {
+		t.Error("sv[1] should have almAvail")
+	}
+}
+
+func TestNavSATPayloadTooShort(t *testing.T) {
+	// Header too short
+	shortHeader := EncodeFrame(ClassNAV, IDNavSAT, make([]byte, 4))
+	_, _, err := ParseFrame(shortHeader)
+	if err == nil {
+		t.Fatal("expected error for short header")
+	}
+	if !errors.Is(err, ErrInvalidPayload) {
+		t.Errorf("expected ErrInvalidPayload, got %v", err)
+	}
+
+	// Claims 2 satellites but only has space for 1
+	payload := make([]byte, 20) // header(8) + 1 satellite(12), but numSvs=2
+	binary.LittleEndian.PutUint32(payload[0:4], 500000)
+	payload[4] = 1 // version
+	payload[5] = 2 // numSvs = 2, but only space for 1
+
+	frame := EncodeFrame(ClassNAV, IDNavSAT, payload)
+	_, _, err = ParseFrame(frame)
+	if err == nil {
+		t.Fatal("expected payload length error")
+	}
+	if !errors.Is(err, ErrInvalidPayload) {
+		t.Errorf("expected ErrInvalidPayload, got %v", err)
+	}
+}
+
 func TestNavSigPayloadTooShort(t *testing.T) {
 	// Build a frame claiming 2 signals but only 1 signal worth of data
 	payload := make([]byte, 24) // header(8) + 1 signal(16), but numSigs=2
