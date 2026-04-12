@@ -77,7 +77,8 @@ gofmt -w .                        # Auto-format all files
 4. Add `decode<MsgName>()` function and wire it into `decodeMessage()` switch
 5. Add config key constant in `encode.go` if applicable (e.g., `KeyMsgout<MsgName>USB`)
 6. Add tests: round-trip decode with known-good frame bytes, short-payload error cases, helper method verification
-7. Verify all constants against the u-blox interface description document
+7. Update `README.md`: add the new message to the supported messages table and add usage examples if the message introduces new patterns
+8. Verify all constants against the u-blox interface description document
 
 ## Testing Conventions
 
